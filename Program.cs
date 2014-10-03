@@ -26,14 +26,19 @@ namespace UniverParser
             foreach (var town in towns)
             {
                 var htmlDocument = GetHtmlDocument(listPage + "?town_=" + 45000000 + "&show_results=300");
+
                 var univerLinkCollection = GetUniverLinkCollection(htmlDocument);
                 var univerCollection = new List<Univer>();
+                var timer = new Stopwatch();
+                timer.Start();
                 foreach (var univerLink in univerLinkCollection)
                 {
                     var univer = GetGeneralInfo(univerLink);
                     univer.Management = GetManagement(univerLink);
                     univerCollection.Add(univer);
                 }
+                timer.Stop();
+                Console.WriteLine(timer.Elapsed);
 
                 FillExcel(town.Value, univerCollection);
             }
@@ -41,8 +46,17 @@ namespace UniverParser
 
         private static Univer GetGeneralInfo(string univerLink)
         {
+            var timer = new Stopwatch();
+            var timer1 = new Stopwatch();
+            timer1.Start();
+            timer.Start();
             var htmlDocument = GetHtmlDocument(univerLink);
+            timer.Stop();
+            var t = timer.Elapsed;
+            Console.WriteLine("get html" + timer.Elapsed);
+            timer.Reset();
 
+            timer.Start();
             var tdPart = htmlDocument.DocumentNode.SelectSingleNode("//td[@class='tdcont']/table[3]/tr/td[2]") != null ? "td[2]" : "td";
             var univer = new Univer();
             if (htmlDocument.DocumentNode.SelectSingleNode("//h1[@class='cart']") != null)
@@ -95,6 +109,10 @@ namespace UniverParser
                 var link = htmlDocument.DocumentNode.SelectNodes("//td[@class='tdcont']/a").First(x => x.Attributes["href"].Value.Contains("act.3/"));
                 univer.Link = new Dictionary<string, string>() { { link.InnerText, rootPage + link.Attributes["href"].Value } };
             }
+            timer.Stop();
+            timer1.Stop();
+            Console.WriteLine("parse " + timer.Elapsed.Milliseconds);
+            Console.WriteLine("html percent " + timer1.Elapsed.Milliseconds/ 100 * t.Milliseconds);
 
             return univer;
         }
