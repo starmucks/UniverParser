@@ -2,7 +2,6 @@
 using HtmlAgilityPack;
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -10,6 +9,7 @@ using System.Net;
 using System.Text;
 using System.Threading.Tasks;
 using Excel = Microsoft.Office.Interop.Excel;
+using System.Diagnostics;
 
 namespace UniverParser
 {
@@ -22,108 +22,147 @@ namespace UniverParser
 
         static void Main(string[] args)
         {
+            Execute().Wait();
+        }
+
+        static async Task Execute()
+        {
             var towns = GetTowns(searchPage);
             foreach (var town in towns)
             {
                 var htmlDocument = GetHtmlDocument(listPage + "?town_=" + 45000000 + "&show_results=300");
                 var univerLinkCollection = GetUniverLinkCollection(htmlDocument);
-                var univerCollection = new List<Univer>();
-                foreach (var univerLink in univerLinkCollection)
-                {
-                    var univer = GetGeneralInfo(univerLink);
-                    univer.Management = GetManagement(univerLink);
-                    univerCollection.Add(univer);
-                }
+
+                var timer = new Stopwatch();
+                timer.Start();
+                var tempManagements = GetManagements(univerLinkCollection);
+                var univers = GetGeneralInfos(univerLinkCollection);
+                var managements = await tempManagements;
+                timer.Stop();
+                Console.WriteLine(timer.Elapsed);
+                var innerJoinQuery = 
+                            from univer in univers
+                            join management in managements on univer.Id equals management.UniverId
+                            select new Univer
+                            {
+                                Address = univer.Address,
+                                Email = univer.Email,
+                                Form = univer.Form,
+                                LastModified = univer.LastModified,
+                                Link = univer.Link,
+                                Id = univer.Id,
+                                Management = management,
+                                Name = univer.Name,
+                                Site = univer.Site,
+                                Telephone = univer.Telephone
+                            } ;
+
+                var univerCollection = innerJoinQuery.ToList();
 
                 FillExcel(town.Value, univerCollection);
             }
         }
 
-        private static Univer GetGeneralInfo(string univerLink)
+        static IList<Univer> GetGeneralInfos(IList<string> univerLinkCollection)
         {
-            var htmlDocument = GetHtmlDocument(univerLink);
-
-            var tdPart = htmlDocument.DocumentNode.SelectSingleNode("//td[@class='tdcont']/table[3]/tr/td[2]") != null ? "td[2]" : "td";
-            var univer = new Univer();
-            if (htmlDocument.DocumentNode.SelectSingleNode("//h1[@class='cart']") != null)
+            var univerCollection = new List<Univer>();
+            foreach (var univerLink in univerLinkCollection)
             {
-                univer.Name = htmlDocument.DocumentNode.SelectSingleNode("//h1[@class='cart']").InnerHtml.Clean();
-            }
-
-            var site = htmlDocument.DocumentNode.SelectSingleNode("//td[@class='tdcont']/a");
-            if (site != null && (site.InnerHtml.Contains("www") || site.InnerHtml.Contains("http")))
-            {
-                univer.Site = htmlDocument.DocumentNode.SelectSingleNode("//td[@class='tdcont']/a").InnerHtml.Clean();
-            }
-
-            if (htmlDocument.DocumentNode.SelectSingleNode("//td[@class='tdcont']/table[3]/tr/" + tdPart + "/b") != null)
-            {
-                univer.Form = htmlDocument.DocumentNode.SelectSingleNode("//td[@class='tdcont']/table[3]/tr/" + tdPart + "/b").InnerHtml.Clean();
-            }
-
-            if (htmlDocument.DocumentNode.SelectSingleNode("//td[@class='tdcont']/table[3]/tr/" + tdPart + "/text()[6]") != null)
-            {
-                univer.Address = htmlDocument.DocumentNode.SelectSingleNode("//td[@class='tdcont']/table[3]/tr/" + tdPart + "/text()[6]").InnerHtml.Clean();
-            }
-
-            if (htmlDocument.DocumentNode.SelectSingleNode("//td[@class='tdcont']/table[3]/tr/" + tdPart + "/text()[13]") != null)
-            {
-                univer.Telephone = htmlDocument.DocumentNode.SelectSingleNode("//td[@class='tdcont']/table[3]/tr/" + tdPart + "/text()[13]").InnerHtml.Clean();
-            }
-
-            if (htmlDocument.DocumentNode.SelectSingleNode("//td[@class='tdcont']/table[3]/tr/" + tdPart + "/a[2]") != null)
-            {
-                univer.Email = htmlDocument.DocumentNode.SelectSingleNode("//td[@class='tdcont']/table[3]/tr/" + tdPart + "/a[2]").InnerHtml.Clean();
-            }
-
-            if (htmlDocument.DocumentNode.SelectSingleNode("//td[@class='tdcont']/div") != null)
-            {
-                var div = htmlDocument.DocumentNode.SelectNodes("//td[@class='tdcont']/div").Count > 4 ? "[2]" : string.Empty;
-                var fullString = htmlDocument.DocumentNode.SelectSingleNode("//td[@class='tdcont']/div" + div).InnerHtml.Clean();
-                DateTime date;
-                var culture = CultureInfo.CreateSpecificCulture("ru-RU");
-                var styles = DateTimeStyles.None;
-                var datePart = fullString.Split(new string[] { ":" }, StringSplitOptions.None)[1];
-                if (DateTime.TryParse(datePart, culture, styles, out date))
+                var htmlDocument = GetHtmlDocument(univerLink);
+                var tdPart = htmlDocument.DocumentNode.SelectSingleNode("//td[@class='tdcont']/table[3]/tr/td[2]") != null ? "td[2]" : "td";
+                var univer = new Univer();
+                var mass = univerLink.Split(new string[] { "isn." }, StringSplitOptions.None);
+                var t = mass[1].Split(new char[]{ '/' })[0];
+                univer.Id = int.Parse(t);
+                if (htmlDocument.DocumentNode.SelectSingleNode("//h1[@class='cart']") != null)
                 {
-                    univer.LastModified = date;
+                    univer.Name = htmlDocument.DocumentNode.SelectSingleNode("//h1[@class='cart']").InnerHtml.Clean();
                 }
-            }
 
-            if (htmlDocument.DocumentNode.SelectNodes("//td[@class='tdcont']/a").Where(x => x.Attributes["href"].Value.Contains("/abitur/act.3/")).Count() > 0)
-            {
-                var link = htmlDocument.DocumentNode.SelectNodes("//td[@class='tdcont']/a").First(x => x.Attributes["href"].Value.Contains("act.3/"));
-                univer.Link = new Dictionary<string, string>() { { link.InnerText, rootPage + link.Attributes["href"].Value } };
-            }
+                var site = htmlDocument.DocumentNode.SelectSingleNode("//td[@class='tdcont']/a");
+                if (site != null && (site.InnerHtml.Contains("www") || site.InnerHtml.Contains("http")))
+                {
+                    univer.Site = htmlDocument.DocumentNode.SelectSingleNode("//td[@class='tdcont']/a").InnerHtml.Clean();
+                }
 
-            return univer;
+                if (htmlDocument.DocumentNode.SelectSingleNode("//td[@class='tdcont']/table[3]/tr/" + tdPart + "/b") != null)
+                {
+                    univer.Form = htmlDocument.DocumentNode.SelectSingleNode("//td[@class='tdcont']/table[3]/tr/" + tdPart + "/b").InnerHtml.Clean();
+                }
+
+                if (htmlDocument.DocumentNode.SelectSingleNode("//td[@class='tdcont']/table[3]/tr/" + tdPart + "/text()[6]") != null)
+                {
+                    univer.Address = htmlDocument.DocumentNode.SelectSingleNode("//td[@class='tdcont']/table[3]/tr/" + tdPart + "/text()[6]").InnerHtml.Clean();
+                }
+
+                if (htmlDocument.DocumentNode.SelectSingleNode("//td[@class='tdcont']/table[3]/tr/" + tdPart + "/text()[13]") != null)
+                {
+                    univer.Telephone = htmlDocument.DocumentNode.SelectSingleNode("//td[@class='tdcont']/table[3]/tr/" + tdPart + "/text()[13]").InnerHtml.Clean();
+                }
+
+                if (htmlDocument.DocumentNode.SelectSingleNode("//td[@class='tdcont']/table[3]/tr/" + tdPart + "/a[2]") != null)
+                {
+                    univer.Email = htmlDocument.DocumentNode.SelectSingleNode("//td[@class='tdcont']/table[3]/tr/" + tdPart + "/a[2]").InnerHtml.Clean();
+                }
+
+                if (htmlDocument.DocumentNode.SelectSingleNode("//td[@class='tdcont']/div") != null)
+                {
+                    var div = htmlDocument.DocumentNode.SelectNodes("//td[@class='tdcont']/div").Count > 4 ? "[2]" : string.Empty;
+                    var fullString = htmlDocument.DocumentNode.SelectSingleNode("//td[@class='tdcont']/div" + div).InnerHtml.Clean();
+                    DateTime date;
+                    var culture = CultureInfo.CreateSpecificCulture("ru-RU");
+                    var styles = DateTimeStyles.None;
+                    var datePart = fullString.Split(new string[] { ":" }, StringSplitOptions.None)[1];
+                    if (DateTime.TryParse(datePart, culture, styles, out date))
+                    {
+                        univer.LastModified = date;
+                    }
+                }
+
+                if (htmlDocument.DocumentNode.SelectNodes("//td[@class='tdcont']/a").Where(x => x.Attributes["href"].Value.Contains("/abitur/act.3/")).Count() > 0)
+                {
+                    var link = htmlDocument.DocumentNode.SelectNodes("//td[@class='tdcont']/a").First(x => x.Attributes["href"].Value.Contains("act.3/"));
+                    univer.Link = new Dictionary<string, string>() { { link.InnerText, rootPage + link.Attributes["href"].Value } };
+                }
+
+                univerCollection.Add(univer);
+            }
+            return univerCollection;
         }
 
-        private static Management GetManagement(string univerLink)
+        static async Task<IList<Management>> GetManagements(IList<string> univerLinkCollection)
         {
-            var htmlDocument = GetHtmlDocument(univerLink.Replace("ds.1", "ds.2"));
-            var management = new Management();
-            if (htmlDocument.DocumentNode.SelectSingleNode("//table[@class='t2']/tr[2]/td[1]") != null)
+            var managementCollection = new List<Management>();
+            foreach (var univerLink in univerLinkCollection)
             {
-                management.Position = htmlDocument.DocumentNode.SelectSingleNode("//table[@class='t2']/tr[2]/td[1]").InnerHtml.Clean();
-            }
+                var htmlDocument = await GetHtmlDocumentAsync(univerLink.Replace("ds.1", "ds.2"));
+                var management = new Management();
+                var mass = univerLink.Split(new string[] { "isn." }, StringSplitOptions.None);
+                var t = mass[1].Split(new char[] { '/' })[0];
+                management.UniverId = int.Parse(t);
+                if (htmlDocument.DocumentNode.SelectSingleNode("//table[@class='t2']/tr[2]/td[1]") != null)
+                {
+                    management.Position = htmlDocument.DocumentNode.SelectSingleNode("//table[@class='t2']/tr[2]/td[1]").InnerHtml.Clean();
+                }
 
-            if (htmlDocument.DocumentNode.SelectSingleNode("//table[@class='t2']/tr[2]/td[2]") != null)
-            {
-                management.FIO = htmlDocument.DocumentNode.SelectSingleNode("//table[@class='t2']/tr[2]/td[2]").InnerHtml.Clean();
-            }
+                if (htmlDocument.DocumentNode.SelectSingleNode("//table[@class='t2']/tr[2]/td[2]") != null)
+                {
+                    management.FIO = htmlDocument.DocumentNode.SelectSingleNode("//table[@class='t2']/tr[2]/td[2]").InnerHtml.Clean();
+                }
 
-            if (htmlDocument.DocumentNode.SelectSingleNode("//table[@class='t2']/tr[2]/td[3]") != null)
-            {
-                management.Phone = htmlDocument.DocumentNode.SelectSingleNode("//table[@class='t2']/tr[2]/td[3]").InnerHtml.Clean();
-            }
+                if (htmlDocument.DocumentNode.SelectSingleNode("//table[@class='t2']/tr[2]/td[3]") != null)
+                {
+                    management.Phone = htmlDocument.DocumentNode.SelectSingleNode("//table[@class='t2']/tr[2]/td[3]").InnerHtml.Clean();
+                }
 
-            if (htmlDocument.DocumentNode.SelectSingleNode("//table[@class='t2']/tr[2]/td[4]") != null)
-            {
-                management.Email = htmlDocument.DocumentNode.SelectSingleNode("//table[@class='t2']/tr[2]/td[4]").InnerHtml.Clean();
-            }
+                if (htmlDocument.DocumentNode.SelectSingleNode("//table[@class='t2']/tr[2]/td[4]") != null)
+                {
+                    management.Email = htmlDocument.DocumentNode.SelectSingleNode("//table[@class='t2']/tr[2]/td[4]").InnerHtml.Clean();
+                }
 
-            return management;
+                managementCollection.Add(management);
+            }
+            return managementCollection;
         }
 
         static void FillExcel(string townName, IList<Univer> univerCollection)
@@ -155,7 +194,7 @@ namespace UniverParser
             excelApp.Quit();
         }
 
-        static ICollection<string> GetUniverLinkCollection(HtmlDocument htmlDocument)
+        static IList<string> GetUniverLinkCollection(HtmlDocument htmlDocument)
         {
             var univerLinkCollection = new List<string>();
             int i = 1;

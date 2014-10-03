@@ -2,6 +2,8 @@
 {
     class Management
     {
+        public int UniverId { get; set; }
+
         public string Position { get; set; }
 
         public string FIO { get; set; }
